@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "required": ["running_builds", "queue_items"],
+  "properties": {
+    "running_builds": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "queue_items": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "additionalProperties": false
+}

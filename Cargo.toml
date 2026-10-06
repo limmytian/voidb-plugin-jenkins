@@ -1,0 +1,34 @@
+[package]
+name = "voidb-plugin-jenkins"
+version = "0.3.0"
+edition = "2024"
+license = "Apache-2.0"
+authors = ["limmytian <limmytian@gmail.com>"]
+description = "Standalone VoidB process plugin for Jenkins CI/CD servers"
+repository = "https://github.com/limmytian/voidb-plugin-jenkins"
+
+[[bin]]
+name = "voidb-plugin-jenkins"
+path = "src/main.rs"
+
+[dependencies]
+voidb-process-plugin-sdk = { path = "../voidb/crates/voidb-process-plugin-sdk" }
+voidb-core = { path = "../voidb/crates/voidb-core" }
+reqwest = { version = "0.12", features = ["json", "native-tls"] }
+async-trait = "0.1"
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.43", features = ["full"] }
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+ratatui = "0.29"
+crossterm = "0.28"
+
+[dev-dependencies]
+uuid = { version = "1.13", features = ["v4"] }
+
+[[example]]
+name = "jenkins_fixture_smoke"
+path = "examples/fixture_smoke.rs"

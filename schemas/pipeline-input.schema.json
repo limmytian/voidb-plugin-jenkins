@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "required": ["job_full_name", "build_number"],
+  "properties": {
+    "job_full_name": { "type": "string", "minLength": 1 },
+    "build_number": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["job_full_name", "build_number"],
+  "properties": {
+    "job_full_name": { "type": "string", "minLength": 1 },
+    "build_number": { "type": "integer", "minimum": 0 },
+    "start": { "type": "integer", "minimum": 0 },
+    "max_bytes": { "type": "integer", "minimum": 1, "maximum": 524288 }
+  },
+  "additionalProperties": false
+}

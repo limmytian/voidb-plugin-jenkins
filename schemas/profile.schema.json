@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["url"],
+  "properties": {
+    "url": { "type": "string", "format": "uri" },
+    "auth": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["None", "Basic"] },
+        "username": { "type": "string" },
+        "token": { "type": "string" }
+      }
+    },
+    "timeout": { "type": "integer", "minimum": 1 },
+    "verify_ssl": { "type": "boolean" }
+  }
+}

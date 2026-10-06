@@ -1,0 +1,149 @@
+id = "jenkins"
+name = "Jenkins Plugin"
+version = "0.3.0"
+protocol_version = "1"
+description = "Jenkins CI/CD automation server integration plugin for VoidB."
+license = "Apache-2.0"
+homepage = "https://github.com/limmytian/voidb-plugin-jenkins"
+
+[runtime]
+command = "voidb-plugin-jenkins"
+args = ["serve"]
+transport = "stdio-jsonrpc"
+
+[connections]
+profile_schema = "schemas/profile.schema.json"
+secret_classes = ["token", "password"]
+
+[[capabilities]]
+id = "diagnostics"
+description = "Return agent-safe Jenkins profile diagnostics without opening a server connection."
+input_schema = "schemas/empty.schema.json"
+output_schema = "schemas/diagnostics-output.schema.json"
+permissions = ["connection.read", "jenkins.diagnostics"]
+risk = "read_only"
+destructive = false
+streaming = false
+connection_required = true
+required_secret_classes = []
+supports_dry_run = false
+default_timeout_ms = 10000
+
+[[capabilities]]
+id = "jobs"
+description = "List Jenkins jobs in a folder with bounded output."
+input_schema = "schemas/jobs-input.schema.json"
+output_schema = "schemas/jobs-output.schema.json"
+permissions = ["connection.read", "jenkins.jobs.list"]
+risk = "read_only"
+destructive = false
+streaming = false
+connection_required = true
+required_secret_classes = []
+supports_dry_run = false
+default_timeout_ms = 30000
+
+[[capabilities]]
+id = "job_detail"
+description = "Fetch Jenkins job metadata and recent builds with bounded build output."
+input_schema = "schemas/job-detail-input.schema.json"
+output_schema = "schemas/job-detail-output.schema.json"
+permissions = ["connection.read", "jenkins.jobs.detail"]
+risk = "read_only"
+destructive = false
+streaming = false
+connection_required = true
+required_secret_classes = []
+supports_dry_run = false
+default_timeout_ms = 30000
+
+[[capabilities]]
+id = "activity"
+description = "Fetch a bounded Jenkins running-build and queue snapshot."
+input_schema = "schemas/empty.schema.json"
+output_schema = "schemas/activity-output.schema.json"
+permissions = ["connection.read", "jenkins.activity"]
+risk = "read_only"
+destructive = false
+streaming = false
+connection_required = true
+required_secret_classes = []
+supports_dry_run = false
+default_timeout_ms = 30000
+
+[[capabilities]]
+id = "console"
+description = "Fetch bounded Jenkins console output for one build."
+input_schema = "schemas/console-input.schema.json"
+output_schema = "schemas/console-output.schema.json"
+permissions = ["connection.read", "jenkins.console"]
+risk = "read_only"
+destructive = false
+streaming = false
+connection_required = true
+required_secret_classes = []
+supports_dry_run = false
+default_timeout_ms = 30000
+
+[[capabilities]]
+id = "pipeline"
+description = "Fetch bounded Jenkins Pipeline stage metadata for one build."
+input_schema = "schemas/pipeline-input.schema.json"
+output_schema = "schemas/pipeline-output.schema.json"
+permissions = ["connection.read", "jenkins.pipeline"]
+risk = "read_only"
+destructive = false
+streaming = false
+connection_required = true
+required_secret_classes = []
+supports_dry_run = false
+default_timeout_ms = 30000
+
+[[capabilities]]
+id = "trigger_build"
+description = "Trigger a Jenkins build."
+input_schema = "schemas/trigger-build-input.schema.json"
+output_schema = "schemas/mutation-output.schema.json"
+permissions = ["connection.write", "jenkins.builds.trigger"]
+risk = "mutating"
+destructive = true
+streaming = false
+connection_required = true
+required_secret_classes = []
+supports_dry_run = true
+default_timeout_ms = 30000
+
+[[capabilities]]
+id = "abort_build"
+description = "Abort a running Jenkins build."
+input_schema = "schemas/abort-build-input.schema.json"
+output_schema = "schemas/mutation-output.schema.json"
+permissions = ["connection.write", "jenkins.builds.abort"]
+risk = "destructive"
+destructive = true
+streaming = false
+connection_required = true
+required_secret_classes = []
+supports_dry_run = true
+default_timeout_ms = 30000
+
+[[capabilities]]
+id = "cancel_queue_item"
+description = "Cancel a queued Jenkins build item."
+input_schema = "schemas/cancel-queue-input.schema.json"
+output_schema = "schemas/mutation-output.schema.json"
+permissions = ["connection.write", "jenkins.queue.cancel"]
+risk = "destructive"
+destructive = true
+streaming = false
+connection_required = true
+required_secret_classes = []
+supports_dry_run = true
+default_timeout_ms = 30000
+
+[ui]
+tui = true
+
+[requirements]
+voidb_core = ">=0.1.0"
+platforms = ["darwin", "linux", "windows"]

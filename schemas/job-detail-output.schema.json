@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "required": ["job", "builds"],
+  "properties": {
+    "job": { "type": "object" },
+    "builds": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "additionalProperties": false
+}

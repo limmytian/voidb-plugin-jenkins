@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "required": [
+    "url_configured",
+    "url_scheme",
+    "auth_type",
+    "timeout_secs",
+    "verify_ssl",
+    "network_checked"
+  ],
+  "properties": {
+    "url_configured": { "type": "boolean" },
+    "url_scheme": { "type": ["string", "null"] },
+    "auth_type": { "type": "string" },
+    "timeout_secs": { "type": "integer", "minimum": 0 },
+    "verify_ssl": { "type": "boolean" },
+    "network_checked": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

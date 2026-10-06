@@ -1,0 +1,80 @@
+{
+  "profile_label": "fixture-jenkins-ops",
+  "server_label": "fixture Jenkins",
+  "auth_method": "basic",
+  "jobs": [
+    {
+      "name": "api",
+      "full_name": "api",
+      "status": "SUCCESS",
+      "url": "https://jenkins.fixture/job/api/",
+      "folder": false,
+      "buildable": true,
+      "in_queue": false,
+      "description": "Main API pipeline"
+    },
+    {
+      "name": "worker",
+      "full_name": "worker",
+      "status": "FAILED",
+      "url": "https://jenkins.fixture/job/worker/",
+      "folder": false,
+      "buildable": true,
+      "in_queue": false,
+      "description": "failed background worker pipeline"
+    },
+    {
+      "name": "platform",
+      "full_name": "platform",
+      "status": "FOLDER",
+      "url": "https://jenkins.fixture/job/platform/",
+      "folder": true,
+      "buildable": false,
+      "in_queue": false,
+      "description": "Team folder"
+    }
+  ],
+  "builds": [
+    {
+      "job_full_name": "api",
+      "number": 42,
+      "result": null,
+      "building": true,
+      "duration": 120000
+    },
+    {
+      "job_full_name": "worker",
+      "number": 17,
+      "result": "FAILURE",
+      "building": false,
+      "duration": 95000
+    }
+  ],
+  "running": [
+    {
+      "job_name": "api",
+      "job_full_name": "api",
+      "build_number": 42,
+      "node": "agent-a",
+      "executor": 1,
+      "progress": 67
+    }
+  ],
+  "queue": [
+    {
+      "id": 901,
+      "job_name": "worker",
+      "job_full_name": "worker",
+      "why": "Waiting for next available executor",
+      "blocked": false,
+      "stuck": false
+    }
+  ],
+  "console": [
+    "2026-07-07T03:25:00Z Started by fixture user",
+    "2026-07-07T03:25:03Z Checkout complete",
+    "2026-07-07T03:25:20Z Running test suite"
+  ],
+  "status": "fixture Jenkins build triage ready",
+  "server_error": "401 unauthorized fixture response with credentials redacted"
+}
