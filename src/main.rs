@@ -3,6 +3,8 @@
 //! Provides stdio-jsonrpc server for VoidB external process plugin integration,
 //! as well as standalone CLI/TUI subcommands.
 
+#![allow(clippy::result_large_err)]
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use voidb_core::{CapabilityError, CapabilityErrorCategory, RedactionStatus};
