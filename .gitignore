@@ -2,3 +2,5 @@ target/
 bin/voidb-plugin-jenkins
 *.log
 .DS_Store
+
+.cargo/

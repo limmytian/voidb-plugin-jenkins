@@ -2798,6 +2798,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "voidb-core"
 version = "0.3.0-rc.1"
+source = "git+https://github.com/limmytian/voidb.git?tag=v0.3.0-rc.1#757ab9bc00db68f4eb203176e8eb52cdfb2f8453"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2853,6 +2854,7 @@ dependencies = [
 [[package]]
 name = "voidb-process-plugin-sdk"
 version = "0.3.0-rc.1"
+source = "git+https://github.com/limmytian/voidb.git?tag=v0.3.0-rc.1#757ab9bc00db68f4eb203176e8eb52cdfb2f8453"
 dependencies = [
  "chrono",
  "serde",
