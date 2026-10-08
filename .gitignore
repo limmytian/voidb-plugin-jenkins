@@ -4,3 +4,5 @@ bin/voidb-plugin-jenkins
 .DS_Store
 
 .cargo/
+
+dist/

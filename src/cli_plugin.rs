@@ -50,7 +50,13 @@ impl CliPlugin for JenkinsCliPlugin {
             Command::new("test")
                 .about("Test Jenkins connectivity and show server info")
                 .arg(profile_arg.clone())
-                .arg(conn_arg.clone()),
+                .arg(conn_arg.clone())
+                .arg(
+                    Arg::new("stdin-config")
+                        .long("stdin-config")
+                        .action(clap::ArgAction::SetTrue)
+                        .help("Read connection configuration JSON from stdin"),
+                ),
             Command::new("jobs")
                 .about("List Jenkins jobs")
                 .arg(profile_arg.clone())
@@ -174,7 +180,20 @@ impl JenkinsCliPlugin {
     }
 
     async fn handle_test(&self, matches: &ArgMatches, ctx: &CliContext) -> Result<(), VoidbError> {
-        let config = Self::resolve_config(matches, ctx)?;
+        let config = if matches.get_flag("stdin-config") {
+            use std::io::Read;
+            let mut input = String::new();
+            std::io::stdin()
+                .read_to_string(&mut input)
+                .map_err(|e| VoidbError::Config(format!("Failed to read stdin: {}", e)))?;
+            let val: serde_json::Value = serde_json::from_str(&input)
+                .map_err(|e| VoidbError::Config(format!("Invalid JSON on stdin: {}", e)))?;
+            let plugin_val = val.get("plugin_config").unwrap_or(&val);
+            serde_json::from_value(plugin_val.clone())
+                .map_err(|e| VoidbError::Config(format!("Invalid Jenkins config: {}", e)))?
+        } else {
+            Self::resolve_config(matches, ctx)?
+        };
         let client = jenkins_client::create_client(&config)
             .map_err(|e| VoidbError::Connection(e.to_string()))?;
         let node = jenkins_client::ping(&client, &config)
@@ -221,9 +240,18 @@ impl JenkinsCliPlugin {
     }
 
     fn parse_config(conn_name: &str, ctx: &CliContext) -> Result<JenkinsConfig, VoidbError> {
-        let config = ctx
-            .find_connection(conn_name)
-            .ok_or_else(|| VoidbError::Plugin(format!("Connection '{}' not found", conn_name)))?;
+        let config = if let Some(config) = ctx.find_connection(conn_name) {
+            config.clone()
+        } else if let Ok((_profile, config)) =
+            ctx.resolve_profile_connection(conn_name, Some("jenkins"))
+        {
+            config
+        } else {
+            return Err(VoidbError::Plugin(format!(
+                "Connection or profile '{}' not found",
+                conn_name
+            )));
+        };
 
         if config.effective_plugin_id() != "jenkins" {
             return Err(VoidbError::Plugin(format!(
