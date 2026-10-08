@@ -7,6 +7,11 @@ Independent process plugin for [VoidB](https://github.com/limmytian/voidb) to co
 ## Features
 
 - **Autonomous Process Architecture**: Runs in an isolated OS process communicating with VoidB via `stdio-jsonrpc`.
+- **Tri-Modal Operation**:
+  - `test`: Automated connectivity verification.
+  - `tui`: Standalone full-screen interactive terminal interface.
+  - `serve`: `stdio-jsonrpc` protocol server for AI Agents and automated orchestration.
+  - Domain commands: Rich CI/CD job querying and console streaming (`jobs`, `console`).
 - **Capability Surface**:
   - `diagnostics`: Secret-safe diagnostic verification without opening remote sockets.
   - `jobs`: List jobs and multi-branch folders.
@@ -17,24 +22,50 @@ Independent process plugin for [VoidB](https://github.com/limmytian/voidb) to co
   - `trigger_build`: Trigger build jobs with optional parameters.
   - `abort_build`: Abort active build executions.
   - `cancel_queue_item`: Cancel queued builds.
-- **Dual Mode**: Can run as a JSON-RPC worker server (`voidb-plugin-jenkins serve`) or standalone interactive TUI.
+
+## Usage & Operational Modes
+
+When installed, `voidb-cli` automatically discovers this plugin and provides seamless transparent dispatch:
+
+### 1. Human Operations (CLI & TUI)
+
+```bash
+# Connectivity test
+voidb-cli jenkins test --profile my-jenkins
+
+# Launch standalone interactive fullscreen TUI
+voidb-cli jenkins tui --profile my-jenkins
+
+# Inspect jobs and view build console logs
+voidb-cli jenkins jobs --profile my-jenkins
+voidb-cli jenkins console "build-job" 42 --profile my-jenkins
+```
+
+### 2. Machine Communication (AI Agents & JSON-RPC)
+
+```bash
+# Run the stdio-jsonrpc server directly or via voidb-cli
+voidb-cli jenkins serve
+# Or directly run the binary:
+./bin/voidb-plugin-jenkins serve
+```
 
 ## Quick Start
 
 ### Installation
 
-Place this plugin directory or a packaged release archive under your VoidB plugins directory:
+Place this plugin directory or a packaged release archive under your VoidB plugins directory (`~/Library/Application Support/voidb/plugins/jenkins` on macOS, or `~/.local/share/voidb/plugins/jenkins` on Linux):
 
 ```bash
-mkdir -p ~/.config/voidb/plugins/jenkins
-cp -r plugin.toml bin schemas ~/.config/voidb/plugins/jenkins/
+mkdir -p "$HOME/Library/Application Support/voidb/plugins/jenkins"
+cp -r plugin.toml bin schemas "$HOME/Library/Application Support/voidb/plugins/jenkins/"
 ```
 
 Verify discovery via `voidb`:
 
 ```bash
 voidb-cli plugin list
-voidb-cli plugin describe jenkins
+voidb-cli jenkins --help
 ```
 
 ### Development & Build
