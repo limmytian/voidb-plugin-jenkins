@@ -1,11 +1,28 @@
 {
-  "type": "object",
-  "required": ["job_full_name", "build_number"],
+  "additionalProperties": false,
   "properties": {
-    "job_full_name": { "type": "string", "minLength": 1 },
-    "build_number": { "type": "integer", "minimum": 0 },
-    "start": { "type": "integer", "minimum": 0 },
-    "max_bytes": { "type": "integer", "minimum": 1, "maximum": 524288 }
+    "build_number": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "job_full_name": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "max_bytes": {
+      "default": 65536,
+      "maximum": 524288,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "start": {
+      "minimum": 0,
+      "type": "integer"
+    }
   },
-  "additionalProperties": false
+  "required": [
+    "job_full_name",
+    "build_number"
+  ],
+  "type": "object"
 }

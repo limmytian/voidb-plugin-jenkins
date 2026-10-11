@@ -1,0 +1,12 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "queue_id": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "queue_id"
+  ],
+  "type": "object"
+}

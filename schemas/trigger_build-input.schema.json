@@ -1,0 +1,13 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "job_full_name": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "job_full_name"
+  ],
+  "type": "object"
+}

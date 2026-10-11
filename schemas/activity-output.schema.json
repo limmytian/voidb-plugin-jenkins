@@ -1,15 +1,66 @@
 {
-  "type": "object",
-  "required": ["running_builds", "queue_items"],
+  "additionalProperties": false,
   "properties": {
-    "running_builds": {
-      "type": "array",
-      "items": { "type": "object" }
+    "cursor": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
-    "queue_items": {
-      "type": "array",
-      "items": { "type": "object" }
+    "limit": {
+      "maximum": 200,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "queue": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "queue_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "queue_source_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "running": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "running_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "running_source_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
     }
   },
-  "additionalProperties": false
+  "required": [
+    "running",
+    "queue",
+    "running_count",
+    "queue_count",
+    "running_source_count",
+    "queue_source_count",
+    "limit",
+    "cursor",
+    "next_cursor",
+    "truncated"
+  ],
+  "type": "object"
 }

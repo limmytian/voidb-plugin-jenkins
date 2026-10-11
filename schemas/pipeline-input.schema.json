@@ -1,9 +1,18 @@
 {
-  "type": "object",
-  "required": ["job_full_name", "build_number"],
+  "additionalProperties": false,
   "properties": {
-    "job_full_name": { "type": "string", "minLength": 1 },
-    "build_number": { "type": "integer", "minimum": 0 }
+    "build_number": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "job_full_name": {
+      "minLength": 1,
+      "type": "string"
+    }
   },
-  "additionalProperties": false
+  "required": [
+    "job_full_name",
+    "build_number"
+  ],
+  "type": "object"
 }

@@ -1,10 +1,55 @@
 {
-  "type": "object",
-  "required": ["output", "more_data", "size"],
+  "additionalProperties": false,
   "properties": {
-    "output": { "type": "string" },
-    "more_data": { "type": "boolean" },
-    "size": { "type": "integer", "minimum": 0 }
+    "build_number": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "byte_limit": {
+      "maximum": 524288,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "bytes_returned": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "has_more": {
+      "type": "boolean"
+    },
+    "job_full_name": {
+      "type": "string"
+    },
+    "next_offset": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "source_bytes": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "start": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "text": {
+      "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
   },
-  "additionalProperties": false
+  "required": [
+    "job_full_name",
+    "build_number",
+    "start",
+    "text",
+    "bytes_returned",
+    "source_bytes",
+    "byte_limit",
+    "truncated",
+    "next_offset",
+    "has_more"
+  ],
+  "type": "object"
 }

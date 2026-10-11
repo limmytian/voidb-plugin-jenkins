@@ -1,0 +1,92 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "builds": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "building": {
+            "type": "boolean"
+          },
+          "duration": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "number": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result_label": {
+            "type": "string"
+          },
+          "timestamp": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "url_omitted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "number",
+          "result",
+          "result_label",
+          "timestamp",
+          "duration",
+          "building",
+          "url_omitted"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "cursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "item_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "job": {
+      "type": "object"
+    },
+    "limit": {
+      "maximum": 200,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_item_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "job",
+    "builds",
+    "item_count",
+    "source_item_count",
+    "limit",
+    "cursor",
+    "next_cursor",
+    "truncated"
+  ],
+  "type": "object"
+}

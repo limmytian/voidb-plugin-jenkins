@@ -1,7 +1,9 @@
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "folder": { "type": "string" }
+    "folder": {
+      "type": "string"
+    }
   },
-  "additionalProperties": false
+  "type": "object"
 }

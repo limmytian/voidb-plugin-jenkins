@@ -1,5 +1,29 @@
 {
-  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "auth_type": {
+      "type": "string"
+    },
+    "network_checked": {
+      "type": "boolean"
+    },
+    "timeout_secs": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "url_configured": {
+      "type": "boolean"
+    },
+    "url_scheme": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "verify_ssl": {
+      "type": "boolean"
+    }
+  },
   "required": [
     "url_configured",
     "url_scheme",
@@ -8,13 +32,5 @@
     "verify_ssl",
     "network_checked"
   ],
-  "properties": {
-    "url_configured": { "type": "boolean" },
-    "url_scheme": { "type": ["string", "null"] },
-    "auth_type": { "type": "string" },
-    "timeout_secs": { "type": "integer", "minimum": 0 },
-    "verify_ssl": { "type": "boolean" },
-    "network_checked": { "type": "boolean" }
-  },
-  "additionalProperties": false
+  "type": "object"
 }

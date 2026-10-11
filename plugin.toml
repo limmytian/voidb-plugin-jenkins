@@ -11,139 +11,701 @@ command = "voidb-plugin-jenkins"
 args = ["serve"]
 transport = "stdio-jsonrpc"
 
+[runtime.env]
+
 [connections]
 profile_schema = "schemas/profile.schema.json"
-secret_classes = ["token", "password"]
+secret_classes = [
+    "token",
+    "password",
+]
 
 [[capabilities]]
 id = "diagnostics"
 description = "Return agent-safe Jenkins profile diagnostics without opening a server connection."
-input_schema = "schemas/empty.schema.json"
+input_schema = "schemas/diagnostics-input.schema.json"
 output_schema = "schemas/diagnostics-output.schema.json"
-permissions = ["connection.read", "jenkins.diagnostics"]
+permissions = [
+    "connection.read",
+    "jenkins.diagnostics",
+]
 risk = "read_only"
 destructive = false
 streaming = false
+execution_mode = "stateless"
 connection_required = true
 required_secret_classes = []
 supports_dry_run = false
-default_timeout_ms = 10000
+default_timeout_ms = 30000
+
+[capabilities.authorization]
+declared = true
+interactive_execute = false
+session_purposes = []
+capability_wide_allowed = true
 
 [[capabilities]]
 id = "jobs"
 description = "List Jenkins jobs in a folder with bounded output."
 input_schema = "schemas/jobs-input.schema.json"
 output_schema = "schemas/jobs-output.schema.json"
-permissions = ["connection.read", "jenkins.jobs.list"]
+permissions = [
+    "connection.read",
+    "jenkins.jobs.list",
+]
 risk = "read_only"
 destructive = false
 streaming = false
+execution_mode = "stateless"
 connection_required = true
 required_secret_classes = []
 supports_dry_run = false
 default_timeout_ms = 30000
+
+[capabilities.authorization]
+declared = true
+interactive_execute = false
+session_purposes = []
+note = "Job, build, or queue identity is revalidated before execution."
+capability_wide_allowed = true
+
+[capabilities.authorization.approval_schema]
+version = 1
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/folder"
+label = "Job folder"
+value_type = "path"
+required = false
+constraint = "prefix"
+risk_emphasis = "normal"
 
 [[capabilities]]
 id = "job_detail"
 description = "Fetch Jenkins job metadata and recent builds with bounded build output."
-input_schema = "schemas/job-detail-input.schema.json"
-output_schema = "schemas/job-detail-output.schema.json"
-permissions = ["connection.read", "jenkins.jobs.detail"]
+input_schema = "schemas/job_detail-input.schema.json"
+output_schema = "schemas/job_detail-output.schema.json"
+permissions = [
+    "connection.read",
+    "jenkins.jobs.detail",
+]
 risk = "read_only"
 destructive = false
 streaming = false
+execution_mode = "stateless"
 connection_required = true
 required_secret_classes = []
 supports_dry_run = false
 default_timeout_ms = 30000
 
+[capabilities.authorization]
+declared = true
+interactive_execute = false
+session_purposes = []
+note = "Job, build, or queue identity is revalidated before execution."
+capability_wide_allowed = true
+
+[capabilities.authorization.approval_schema]
+version = 1
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/job_full_name"
+label = "Job"
+value_type = "resource_id"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
+
 [[capabilities]]
 id = "activity"
 description = "Fetch a bounded Jenkins running-build and queue snapshot."
-input_schema = "schemas/empty.schema.json"
+input_schema = "schemas/activity-input.schema.json"
 output_schema = "schemas/activity-output.schema.json"
-permissions = ["connection.read", "jenkins.activity"]
+permissions = [
+    "connection.read",
+    "jenkins.activity",
+]
 risk = "read_only"
 destructive = false
 streaming = false
+execution_mode = "stateless"
 connection_required = true
 required_secret_classes = []
 supports_dry_run = false
 default_timeout_ms = 30000
+
+[capabilities.authorization]
+declared = true
+interactive_execute = false
+session_purposes = []
+capability_wide_allowed = true
 
 [[capabilities]]
 id = "console"
 description = "Fetch bounded Jenkins console output for one build."
 input_schema = "schemas/console-input.schema.json"
 output_schema = "schemas/console-output.schema.json"
-permissions = ["connection.read", "jenkins.console"]
+permissions = [
+    "connection.read",
+    "jenkins.console",
+]
 risk = "read_only"
 destructive = false
 streaming = false
+execution_mode = "stateless"
 connection_required = true
 required_secret_classes = []
 supports_dry_run = false
 default_timeout_ms = 30000
+
+[capabilities.authorization]
+declared = true
+interactive_execute = false
+session_purposes = []
+note = "Job and build are revalidated; progressive console sessions remain deferred."
+capability_wide_allowed = true
+
+[capabilities.authorization.approval_schema]
+version = 1
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/job_full_name"
+label = "Job"
+value_type = "resource_id"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/build_number"
+label = "Build number"
+value_type = "integer"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
+
+[[capabilities]]
+id = "console_follow"
+description = "Follow Jenkins progressive console output with exact byte-offset continuation."
+input_schema = "schemas/console_follow-input.schema.json"
+output_schema = "schemas/console_follow-output.schema.json"
+permissions = [
+    "connection.read",
+    "jenkins.console",
+]
+risk = "read_only"
+destructive = false
+streaming = true
+execution_mode = "session_only"
+connection_required = true
+required_secret_classes = []
+supports_dry_run = false
+default_timeout_ms = 30000
+
+[capabilities.authorization]
+declared = true
+interactive_execute = false
+note = "Jenkins live-session target identity is revalidated at session open."
+capability_wide_allowed = true
+
+[[capabilities.authorization.session_purposes]]
+kind = "log_stream"
+
+[capabilities.authorization.approval_schema]
+version = 1
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/resource/job_full_name"
+label = "Job"
+value_type = "resource_id"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/resource/build_number"
+label = "Build number"
+value_type = "integer"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
+
+[capabilities.session_handoff]
+capabilities = ["jenkins.console_follow"]
+
+[capabilities.session_handoff.purpose]
+kind = "log_stream"
+
+[capabilities.session_handoff.live_session]
+protocol_version = 1
+start_risk = "read_only"
+
+[capabilities.session_handoff.live_session.kind]
+kind = "progressive_output"
+
+[capabilities.session_handoff.live_session.resource]
+resource_type = "jenkins_build"
+identity_fields = [
+    "/job_full_name",
+    "/build_number",
+]
+audit_identity = "fingerprint"
+
+[capabilities.session_handoff.live_session.resource.identity_schema]
+additionalProperties = false
+required = [
+    "job_full_name",
+    "build_number",
+]
+type = "object"
+
+[capabilities.session_handoff.live_session.resource.identity_schema.properties.build_number]
+minimum = 0
+type = "integer"
+
+[capabilities.session_handoff.live_session.resource.identity_schema.properties.job_full_name]
+maxLength = 512
+minLength = 1
+type = "string"
+
+[capabilities.session_handoff.live_session.start_parameters_schema]
+additionalProperties = false
+type = "object"
+
+[capabilities.session_handoff.live_session.start_parameters_schema.properties.poll_interval_ms]
+default = 1000
+maximum = 10000
+minimum = 250
+type = "integer"
+
+[capabilities.session_handoff.live_session.event_schema]
+maxProperties = 16
+type = "object"
+
+[capabilities.session_handoff.live_session.operations]
+events = "jenkins.console_follow"
+
+[capabilities.session_handoff.live_session.buffer]
+max_events = 5000
+max_bytes = 5242880
+overflow = "drop_oldest"
+
+[capabilities.session_handoff.live_session.reconnect]
+mode = "transient"
+max_attempts = 8
+initial_backoff_ms = 250
+max_backoff_ms = 10000
+resume = "exact_cursor"
+cursor_kind = "byte_offset"
+
+[capabilities.session_handoff.live_session.delivery]
+backpressure = "bounded_buffer"
+cursor_scope = "optional"
+max_read_wait_ms = 30000
+
+[capabilities.session_handoff.live_session.delivery.heartbeat]
+
+[capabilities.session_handoff.live_session.control]
+cancel = "call_only"
+close = "stop_observation"
+
+[[capabilities]]
+id = "build_wait"
+description = "Wait for a Jenkins build to reach a terminal result."
+input_schema = "schemas/build_wait-input.schema.json"
+output_schema = "schemas/build_wait-output.schema.json"
+permissions = [
+    "connection.read",
+    "jenkins.builds.wait",
+]
+risk = "read_only"
+destructive = false
+streaming = true
+execution_mode = "session_only"
+connection_required = true
+required_secret_classes = []
+supports_dry_run = false
+default_timeout_ms = 30000
+
+[capabilities.authorization]
+declared = true
+interactive_execute = false
+note = "Jenkins live-session target identity is revalidated at session open."
+capability_wide_allowed = true
+
+[[capabilities.authorization.session_purposes]]
+kind = "watch_stream"
+
+[capabilities.authorization.approval_schema]
+version = 1
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/resource/job_full_name"
+label = "Job"
+value_type = "resource_id"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/resource/build_number"
+label = "Build number"
+value_type = "integer"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
+
+[capabilities.session_handoff]
+capabilities = ["jenkins.build_wait"]
+
+[capabilities.session_handoff.purpose]
+kind = "watch_stream"
+
+[capabilities.session_handoff.live_session]
+protocol_version = 1
+start_risk = "read_only"
+
+[capabilities.session_handoff.live_session.kind]
+kind = "wait"
+
+[capabilities.session_handoff.live_session.resource]
+resource_type = "jenkins_build"
+identity_fields = [
+    "/job_full_name",
+    "/build_number",
+]
+audit_identity = "fingerprint"
+
+[capabilities.session_handoff.live_session.resource.identity_schema]
+additionalProperties = false
+required = [
+    "job_full_name",
+    "build_number",
+]
+type = "object"
+
+[capabilities.session_handoff.live_session.resource.identity_schema.properties.build_number]
+minimum = 0
+type = "integer"
+
+[capabilities.session_handoff.live_session.resource.identity_schema.properties.job_full_name]
+maxLength = 512
+minLength = 1
+type = "string"
+
+[capabilities.session_handoff.live_session.start_parameters_schema]
+additionalProperties = false
+type = "object"
+
+[capabilities.session_handoff.live_session.start_parameters_schema.properties.poll_interval_ms]
+default = 1000
+maximum = 10000
+minimum = 250
+type = "integer"
+
+[capabilities.session_handoff.live_session.event_schema]
+maxProperties = 16
+type = "object"
+
+[capabilities.session_handoff.live_session.operations]
+events = "jenkins.build_wait"
+
+[capabilities.session_handoff.live_session.buffer]
+max_events = 32
+max_bytes = 262144
+overflow = "coalesce"
+
+[capabilities.session_handoff.live_session.reconnect]
+mode = "transient"
+max_attempts = 8
+initial_backoff_ms = 250
+max_backoff_ms = 10000
+resume = "restart"
+
+[capabilities.session_handoff.live_session.delivery]
+backpressure = "bounded_buffer"
+cursor_scope = "optional"
+max_read_wait_ms = 30000
+
+[capabilities.session_handoff.live_session.delivery.heartbeat]
+
+[capabilities.session_handoff.live_session.control]
+cancel = "call_only"
+close = "stop_observation"
+
+[[capabilities]]
+id = "queue_watch"
+description = "Track a Jenkins queue item until cancellation, disappearance, or build assignment."
+input_schema = "schemas/queue_watch-input.schema.json"
+output_schema = "schemas/queue_watch-output.schema.json"
+permissions = [
+    "connection.read",
+    "jenkins.queue.track",
+]
+risk = "read_only"
+destructive = false
+streaming = true
+execution_mode = "session_only"
+connection_required = true
+required_secret_classes = []
+supports_dry_run = false
+default_timeout_ms = 30000
+
+[capabilities.authorization]
+declared = true
+interactive_execute = false
+note = "Jenkins live-session target identity is revalidated at session open."
+capability_wide_allowed = true
+
+[[capabilities.authorization.session_purposes]]
+kind = "watch_stream"
+
+[capabilities.authorization.approval_schema]
+version = 1
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/resource/queue_id"
+label = "Queue item"
+value_type = "integer"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
+
+[capabilities.session_handoff]
+capabilities = ["jenkins.queue_watch"]
+
+[capabilities.session_handoff.purpose]
+kind = "watch_stream"
+
+[capabilities.session_handoff.live_session]
+protocol_version = 1
+start_risk = "read_only"
+
+[capabilities.session_handoff.live_session.kind]
+kind = "queue"
+
+[capabilities.session_handoff.live_session.resource]
+resource_type = "jenkins_queue_item"
+identity_fields = ["/queue_id"]
+audit_identity = "fingerprint"
+
+[capabilities.session_handoff.live_session.resource.identity_schema]
+additionalProperties = false
+required = ["queue_id"]
+type = "object"
+
+[capabilities.session_handoff.live_session.resource.identity_schema.properties.queue_id]
+minimum = 0
+type = "integer"
+
+[capabilities.session_handoff.live_session.start_parameters_schema]
+additionalProperties = false
+type = "object"
+
+[capabilities.session_handoff.live_session.start_parameters_schema.properties.poll_interval_ms]
+default = 1000
+maximum = 10000
+minimum = 250
+type = "integer"
+
+[capabilities.session_handoff.live_session.event_schema]
+maxProperties = 16
+type = "object"
+
+[capabilities.session_handoff.live_session.operations]
+events = "jenkins.queue_watch"
+
+[capabilities.session_handoff.live_session.buffer]
+max_events = 32
+max_bytes = 262144
+overflow = "coalesce"
+
+[capabilities.session_handoff.live_session.reconnect]
+mode = "transient"
+max_attempts = 8
+initial_backoff_ms = 250
+max_backoff_ms = 10000
+resume = "restart"
+
+[capabilities.session_handoff.live_session.delivery]
+backpressure = "bounded_buffer"
+cursor_scope = "optional"
+max_read_wait_ms = 30000
+
+[capabilities.session_handoff.live_session.delivery.heartbeat]
+
+[capabilities.session_handoff.live_session.control]
+cancel = "call_only"
+close = "stop_observation"
 
 [[capabilities]]
 id = "pipeline"
 description = "Fetch bounded Jenkins Pipeline stage metadata for one build."
 input_schema = "schemas/pipeline-input.schema.json"
 output_schema = "schemas/pipeline-output.schema.json"
-permissions = ["connection.read", "jenkins.pipeline"]
+permissions = [
+    "connection.read",
+    "jenkins.pipeline",
+]
 risk = "read_only"
 destructive = false
 streaming = false
+execution_mode = "stateless"
 connection_required = true
 required_secret_classes = []
 supports_dry_run = false
 default_timeout_ms = 30000
 
+[capabilities.authorization]
+declared = true
+interactive_execute = false
+session_purposes = []
+note = "Job, build, or queue identity is revalidated before execution."
+capability_wide_allowed = true
+
+[capabilities.authorization.approval_schema]
+version = 1
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/job_full_name"
+label = "Job"
+value_type = "resource_id"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/build_number"
+label = "Build number"
+value_type = "integer"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
+
 [[capabilities]]
 id = "trigger_build"
 description = "Trigger a Jenkins build."
-input_schema = "schemas/trigger-build-input.schema.json"
-output_schema = "schemas/mutation-output.schema.json"
-permissions = ["connection.write", "jenkins.builds.trigger"]
-risk = "mutating"
+input_schema = "schemas/trigger_build-input.schema.json"
+output_schema = "schemas/trigger_build-output.schema.json"
+permissions = [
+    "connection.write",
+    "jenkins.builds.trigger",
+]
+risk = "destructive"
 destructive = true
 streaming = false
+execution_mode = "stateless"
 connection_required = true
 required_secret_classes = []
 supports_dry_run = true
 default_timeout_ms = 30000
+
+[capabilities.authorization]
+declared = true
+interactive_execute = false
+session_purposes = []
+note = "Job, build, or queue identity is revalidated before execution."
+capability_wide_allowed = true
+
+[capabilities.authorization.approval_schema]
+version = 1
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/job_full_name"
+label = "Job"
+value_type = "resource_id"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
 
 [[capabilities]]
 id = "abort_build"
 description = "Abort a running Jenkins build."
-input_schema = "schemas/abort-build-input.schema.json"
-output_schema = "schemas/mutation-output.schema.json"
-permissions = ["connection.write", "jenkins.builds.abort"]
+input_schema = "schemas/abort_build-input.schema.json"
+output_schema = "schemas/abort_build-output.schema.json"
+permissions = [
+    "connection.write",
+    "jenkins.builds.abort",
+]
 risk = "destructive"
 destructive = true
 streaming = false
+execution_mode = "stateless"
 connection_required = true
 required_secret_classes = []
 supports_dry_run = true
 default_timeout_ms = 30000
+
+[capabilities.authorization]
+declared = true
+interactive_execute = false
+session_purposes = []
+note = "Job, build, or queue identity is revalidated before execution."
+capability_wide_allowed = true
+
+[capabilities.authorization.approval_schema]
+version = 1
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/job_full_name"
+label = "Job"
+value_type = "resource_id"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/build_number"
+label = "Build number"
+value_type = "integer"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
 
 [[capabilities]]
 id = "cancel_queue_item"
 description = "Cancel a queued Jenkins build item."
-input_schema = "schemas/cancel-queue-input.schema.json"
-output_schema = "schemas/mutation-output.schema.json"
-permissions = ["connection.write", "jenkins.queue.cancel"]
+input_schema = "schemas/cancel_queue_item-input.schema.json"
+output_schema = "schemas/cancel_queue_item-output.schema.json"
+permissions = [
+    "connection.write",
+    "jenkins.queue.cancel",
+]
 risk = "destructive"
 destructive = true
 streaming = false
+execution_mode = "stateless"
 connection_required = true
 required_secret_classes = []
 supports_dry_run = true
 default_timeout_ms = 30000
 
+[capabilities.authorization]
+declared = true
+interactive_execute = false
+session_purposes = []
+note = "Job, build, or queue identity is revalidated before execution."
+capability_wide_allowed = true
+
+[capabilities.authorization.approval_schema]
+version = 1
+
+[[capabilities.authorization.approval_schema.fields]]
+path = "/queue_id"
+label = "Queue item"
+value_type = "integer"
+required = true
+constraint = "exact"
+risk_emphasis = "normal"
+
 [ui]
 tui = true
+raw_input = false
 
 [requirements]
 voidb_core = ">=0.1.0"
-platforms = ["darwin", "linux", "windows"]
+platforms = [
+    "darwin",
+    "linux",
+    "windows",
+]

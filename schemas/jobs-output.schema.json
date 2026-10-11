@@ -1,11 +1,88 @@
 {
-  "type": "object",
-  "required": ["jobs"],
+  "additionalProperties": false,
   "properties": {
+    "cursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "item_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
     "jobs": {
-      "type": "array",
-      "items": { "type": "object" }
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "class": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "folder": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "url_omitted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "running",
+          "folder",
+          "class",
+          "url_omitted"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "limit": {
+      "maximum": 200,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "metadata": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_item_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
     }
   },
-  "additionalProperties": false
+  "required": [
+    "jobs",
+    "item_count",
+    "source_item_count",
+    "limit",
+    "cursor",
+    "next_cursor",
+    "truncated",
+    "metadata"
+  ],
+  "type": "object"
 }
