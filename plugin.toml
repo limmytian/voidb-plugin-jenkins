@@ -1,6 +1,6 @@
 id = "jenkins"
 name = "Jenkins Plugin"
-version = "0.3.3"
+version = "0.3.4"
 protocol_version = "1"
 description = "Jenkins CI/CD automation server integration plugin for VoidB."
 license = "Apache-2.0"
