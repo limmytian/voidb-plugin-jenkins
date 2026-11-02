@@ -175,7 +175,9 @@ impl JenkinsCliPlugin {
         } else if let Some(conn_name) = matches.get_one::<String>("connection") {
             Self::parse_config(conn_name, ctx)
         } else {
-            Err(VoidbError::Plugin("jenkins requires --connection or --profile".to_string()))
+            Err(VoidbError::Plugin(
+                "jenkins requires --connection or --profile".to_string(),
+            ))
         }
     }
 
@@ -202,7 +204,11 @@ impl JenkinsCliPlugin {
         if node.is_empty() {
             println!("Jenkins is reachable at {}", config.base_url());
         } else {
-            println!("Connected: Jenkins node '{}' at {}", node, config.base_url());
+            println!(
+                "Connected: Jenkins node '{}' at {}",
+                node,
+                config.base_url()
+            );
         }
         Ok(())
     }
@@ -211,24 +217,37 @@ impl JenkinsCliPlugin {
         let config = Self::resolve_config(matches, ctx)?;
         let client = jenkins_client::create_client(&config)
             .map_err(|e| VoidbError::Connection(e.to_string()))?;
-        let folder = matches.get_one::<String>("folder").map(|s| s.as_str()).unwrap_or("");
+        let folder = matches
+            .get_one::<String>("folder")
+            .map(|s| s.as_str())
+            .unwrap_or("");
         let jobs = jenkins_client::list_jobs(&client, &config, folder)
             .await
             .map_err(|e| VoidbError::Plugin(e.to_string()))?;
         println!("{:<32} {:<16} {:<12}", "JOB NAME", "COLOR/STATUS", "TYPE");
         println!("{}", "-".repeat(64));
         for j in jobs {
-            println!("{:<32} {:<16} {:<12}", j.name, j.color.unwrap_or_default(), j.class.unwrap_or_default());
+            println!(
+                "{:<32} {:<16} {:<12}",
+                j.name,
+                j.color.unwrap_or_default(),
+                j.class.unwrap_or_default()
+            );
         }
         Ok(())
     }
 
-    async fn handle_console(&self, matches: &ArgMatches, ctx: &CliContext) -> Result<(), VoidbError> {
+    async fn handle_console(
+        &self,
+        matches: &ArgMatches,
+        ctx: &CliContext,
+    ) -> Result<(), VoidbError> {
         let config = Self::resolve_config(matches, ctx)?;
         let client = jenkins_client::create_client(&config)
             .map_err(|e| VoidbError::Connection(e.to_string()))?;
         let job = matches.get_one::<String>("job").unwrap();
-        let build: u64 = matches.get_one::<String>("build")
+        let build: u64 = matches
+            .get_one::<String>("build")
             .unwrap_or(&"0".to_string())
             .parse()
             .unwrap_or(0);
