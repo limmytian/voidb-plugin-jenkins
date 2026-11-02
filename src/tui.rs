@@ -35,10 +35,12 @@ use crate::types::{
     Activity, BuildSummary, ConsoleChunk, JobDetail, JobSummary, QueueItem, RunningBuild,
 };
 
+const BROWSER_HINTS: &str = "1-3 view N jobs j/k PgUp/PgDn / filter i detail f console c stop t/R/x plan r refresh a share y confirm ? q quit";
 const CONSOLE_LINE_LIMIT: usize = 5_000;
 const CONSOLE_BYTE_LIMIT: usize = 5 * 1024 * 1024;
 const CONSOLE_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const OPERATION_SYNC_INTERVAL: Duration = Duration::from_millis(250);
+const PAGE_STEP: isize = 10;
 pub const JENKINS_AGENT_CONTEXT_STORE_DIR_ENV: &str = "VOIDB_JENKINS_AGENT_CONTEXT_DIR";
 #[doc(hidden)]
 pub const LEGACY_JENKINS_ASSIST_STORE_DIR_ENV: &str = "VOIDB_JENKINS_ASSIST_DIR";
@@ -311,8 +313,18 @@ enum ViewKind {
 enum Mode {
     Browser,
     Filter,
+}
+
+/// Full-screen or popup surfaces stacked on top of the browser. Input is
+/// routed to the active overlay first, so each surface owns its key space
+/// instead of overloading browser keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Overlay {
+    None,
     Help,
-    Error,
+    JobPicker,
+    ConsoleViewer,
+    ConfirmQuit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -441,6 +453,14 @@ pub fn build_jenkins_tui_evidence(launch: &JenkinsTuiLaunch) -> Result<Value> {
             "queue_running_failed_states",
             "console_follow_bounds",
             "console_search_filter",
+            "kind_hotkeys",
+            "per_kind_selection",
+            "page_navigation",
+            "job_picker",
+            "non_modal_error_banner",
+            "console_viewer_scrollback",
+            "quit_confirmation",
+            "filter_match_count",
             "trigger_parameter_preview",
             "stop_double_confirmation",
             "retry_confirmation",
@@ -573,10 +593,11 @@ fn preflight_value(launch: &JenkinsTuiLaunch) -> Value {
             "jobs",
             "builds",
             "activity",
-            "console_follow",
+            "job_picker",
+            "console_viewer",
             "search_filter",
             "operation_plan",
-            "server_error"
+            "confirm_quit"
         ],
         "launch_plan": launch_plan
     })
@@ -661,13 +682,19 @@ struct JenkinsTuiApp {
     builds: Vec<BuildView>,
     running: Vec<RunningView>,
     queue: Vec<QueueView>,
-    selected: usize,
+    selections: [usize; ViewKind::COUNT],
     filter: String,
+    overlay: Overlay,
+    error_banner: Option<String>,
+    pending: [bool; ViewKind::COUNT],
+    job_filter: String,
+    job_selected: usize,
+    viewer_follow: bool,
+    viewer_scroll: usize,
     service: Option<JenkinsService>,
     operation_plan: Option<OperationPlanView>,
     status: String,
     mode: Mode,
-    return_mode: Mode,
     console: BoundedLines,
     console_follow: Option<(String, u64)>,
     console_offset: u64,
@@ -698,6 +725,7 @@ impl JenkinsTuiApp {
         };
 
         let render_quit = Arc::new(AtomicBool::new(false));
+        let mut initial_pending = [false; ViewKind::COUNT];
         let service = if launch.fixture_path.is_none() {
             let config = launch
                 .config
@@ -711,6 +739,8 @@ impl JenkinsTuiApp {
                 folder: String::new(),
             });
             service.send(JenkinsCommand::GetActivity);
+            initial_pending[ViewKind::Jobs.index()] = true;
+            initial_pending[ViewKind::Activity.index()] = true;
             Some(service)
         } else {
             None
@@ -739,13 +769,19 @@ impl JenkinsTuiApp {
             builds: data.builds,
             running: data.running,
             queue: data.queue,
-            selected: 0,
+            selections: [0; ViewKind::COUNT],
             filter: String::new(),
+            overlay: Overlay::None,
+            error_banner: None,
+            pending: initial_pending,
+            job_filter: String::new(),
+            job_selected: 0,
+            viewer_follow: true,
+            viewer_scroll: 0,
             service,
             operation_plan: None,
             status,
             mode: Mode::Browser,
-            return_mode: Mode::Browser,
             console,
             console_follow: None,
             console_offset: 0,
@@ -822,12 +858,14 @@ impl JenkinsTuiApp {
                 };
             }
             JenkinsEvent::JobsListed { folder: _, jobs } => {
+                self.pending[ViewKind::Jobs.index()] = false;
                 self.jobs = jobs.into_iter().map(JobView::from).collect();
                 self.jobs.sort_by(|left, right| left.name.cmp(&right.name));
                 self.trim_selection();
                 self.status = format!("listed {} Jenkins jobs", self.jobs.len());
             }
             JenkinsEvent::JobDetailLoaded { detail } => {
+                self.pending[ViewKind::Builds.index()] = false;
                 self.apply_job_detail(detail);
             }
             JenkinsEvent::BuildTriggered {
@@ -858,6 +896,7 @@ impl JenkinsTuiApp {
                 self.apply_console_chunk(job_full_name, build_number, chunk);
             }
             JenkinsEvent::ActivityLoaded { activity } => {
+                self.pending[ViewKind::Activity.index()] = false;
                 self.apply_activity(activity);
             }
             JenkinsEvent::QueueItemCancelled { queue_id } => {
@@ -873,8 +912,11 @@ impl JenkinsTuiApp {
                 );
             }
             JenkinsEvent::Error(message) => {
-                self.mode = Mode::Error;
-                self.status = safe_error_summary(&message);
+                // Background and request failures surface as a non-modal
+                // banner so a failing console poll or refresh never hijacks
+                // the browser.
+                self.error_banner = Some(message);
+                self.status = safe_error_summary(self.error_banner.as_deref().unwrap_or(""));
             }
         }
     }
@@ -890,7 +932,7 @@ impl JenkinsTuiApp {
             })
             .collect();
         self.active = ViewKind::Builds;
-        self.selected = 0;
+        self.selections[ViewKind::Builds.index()] = 0;
         self.status = format!("loaded {} builds for {}", self.builds.len(), full_name);
     }
 
@@ -945,15 +987,29 @@ impl JenkinsTuiApp {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
-        if self.mode == Mode::Help {
-            self.mode = self.return_mode;
-            self.status = format!("returned to {}", mode_label(self.mode));
-            return;
-        }
-        if self.mode == Mode::Error {
-            self.mode = Mode::Browser;
-            self.status = "returned to Jenkins browser".to_string();
-            return;
+        // The error banner is informational: any key acknowledges it while
+        // the key itself keeps its normal meaning, so background failures
+        // never trap the operator in a modal.
+        self.error_banner = None;
+        match self.overlay {
+            Overlay::None => {}
+            Overlay::Help => {
+                self.overlay = Overlay::None;
+                self.status = "help closed".to_string();
+                return;
+            }
+            Overlay::JobPicker => {
+                self.handle_job_picker_key(key);
+                return;
+            }
+            Overlay::ConsoleViewer => {
+                self.handle_console_viewer_key(key);
+                return;
+            }
+            Overlay::ConfirmQuit => {
+                self.handle_confirm_quit_key(key);
+                return;
+            }
         }
         if self.mode == Mode::Filter {
             self.handle_filter_key(key);
@@ -961,21 +1017,24 @@ impl JenkinsTuiApp {
         }
 
         match key.code {
-            KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Char('q') => self.request_quit(),
             KeyCode::Tab => self.next_view(),
             KeyCode::BackTab => self.previous_view(),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
-            KeyCode::Home | KeyCode::Char('g') => self.selected = 0,
+            KeyCode::PageUp => self.move_selection(-PAGE_STEP),
+            KeyCode::PageDown => self.move_selection(PAGE_STEP),
+            KeyCode::Home | KeyCode::Char('g') => self.set_selected(0),
             KeyCode::End | KeyCode::Char('G') => {
-                self.selected = self.filtered_items().len().saturating_sub(1);
+                let len = self.filtered_items().len();
+                self.set_selected(len.saturating_sub(1));
             }
             KeyCode::Enter | KeyCode::Char('i') => self.open_selected(),
             KeyCode::Char('/') => {
-                self.return_mode = self.mode;
                 self.mode = Mode::Filter;
-                self.status = "search: type text, Enter apply, Esc clear".to_string();
+                self.status = "filter: type to narrow live, Enter apply, Esc clear".to_string();
             }
+            KeyCode::Char('N') => self.open_job_picker(),
             KeyCode::Char('r') => self.refresh(),
             KeyCode::Char('f') => self.follow_console(),
             KeyCode::Char('c') => self.cancel_console(),
@@ -996,10 +1055,12 @@ impl JenkinsTuiApp {
             KeyCode::Char('y') => self.confirm_plan(),
             KeyCode::Esc => self.cancel_plan(),
             KeyCode::Char('?') => self.show_help(),
+            KeyCode::Char(digit @ '1'..='3') => {
+                let index = digit.to_digit(10).unwrap_or(1) as usize - 1;
+                self.set_active_kind(ViewKind::ALL[index]);
+            }
             _ => {
-                self.status =
-                    "jenkins: Tab views, j/k move, / search, Enter detail, f console, a share context, y/n review agent operation, t/R/x plan, q quit"
-                        .to_string();
+                self.status = format!("jenkins: {BROWSER_HINTS}");
             }
         }
     }
@@ -1007,36 +1068,221 @@ impl JenkinsTuiApp {
     fn handle_filter_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Enter => {
-                self.mode = self.return_mode;
-                self.selected = 0;
-                self.status = format!("search applied: {}", self.filter_label());
+                self.mode = Mode::Browser;
+                self.set_selected(0);
+                self.status = format!(
+                    "filter applied: {} ({} matches)",
+                    self.filter_label(),
+                    self.filtered_items().len()
+                );
             }
             KeyCode::Esc => {
                 self.filter.clear();
-                self.mode = self.return_mode;
-                self.selected = 0;
-                self.status = "search cleared".to_string();
+                self.mode = Mode::Browser;
+                self.set_selected(0);
+                self.status = "filter cleared".to_string();
             }
             KeyCode::Backspace => {
                 self.filter.pop();
-                self.selected = 0;
+                self.set_selected(0);
             }
             KeyCode::Char(ch) => {
                 self.filter.push(ch);
-                self.selected = 0;
+                self.set_selected(0);
             }
             _ => {}
+        }
+    }
+
+    fn selected(&self) -> usize {
+        self.selections[self.active.index()]
+    }
+
+    fn set_selected(&mut self, value: usize) {
+        let len = self.filtered_items().len();
+        self.selections[self.active.index()] = value.min(len.saturating_sub(1));
+    }
+
+    fn set_active_kind(&mut self, kind: ViewKind) {
+        if self.active == kind {
+            return;
+        }
+        // Selection is remembered per kind, so hopping between jobs,
+        // builds, and activity no longer resets the operator's place.
+        self.active = kind;
+        self.status = format!("view: {}", kind.label());
+    }
+
+    fn open_job_picker(&mut self) {
+        if self.jobs.is_empty() {
+            self.status = "no jobs loaded yet; press r to refresh".to_string();
+            return;
+        }
+        self.job_filter.clear();
+        self.job_selected = 0;
+        self.overlay = Overlay::JobPicker;
+        self.status = "job picker: type to narrow, Enter selects, Esc close".to_string();
+    }
+
+    fn filtered_jobs(&self) -> Vec<&JobView> {
+        let needle = self.job_filter.to_lowercase();
+        self.jobs
+            .iter()
+            .filter(|job| {
+                needle.is_empty()
+                    || job.full_name.to_lowercase().contains(&needle)
+                    || job.status.to_lowercase().contains(&needle)
+                    || job.description.to_lowercase().contains(&needle)
+            })
+            .collect()
+    }
+
+    fn handle_job_picker_key(&mut self, key: KeyEvent) {
+        let matches = self.filtered_jobs().len();
+        match key.code {
+            KeyCode::Esc => {
+                self.overlay = Overlay::None;
+                self.status = "job picker closed".to_string();
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.job_selected = self.job_selected.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if matches > 0 {
+                    self.job_selected = (self.job_selected + 1).min(matches - 1);
+                }
+            }
+            KeyCode::Enter => self.apply_job_selection(),
+            KeyCode::Backspace => {
+                self.job_filter.pop();
+                self.job_selected = 0;
+            }
+            KeyCode::Char(ch) => {
+                self.job_filter.push(ch);
+                self.job_selected = 0;
+            }
+            _ => {}
+        }
+    }
+
+    fn apply_job_selection(&mut self) {
+        let matches = self.filtered_jobs();
+        let Some(job) = matches.get(self.job_selected) else {
+            self.status = "no job matches the picker filter".to_string();
+            return;
+        };
+        let job = (*job).clone();
+        let position = self.jobs.iter().position(|candidate| candidate == &job);
+        self.overlay = Overlay::None;
+        self.set_active_kind(ViewKind::Jobs);
+        if let Some(position) = position {
+            self.selections[ViewKind::Jobs.index()] = position;
+        }
+        self.status = format!("picked job {}", job.full_name);
+    }
+
+    fn handle_console_viewer_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.overlay = Overlay::None;
+                self.status = if self.console_follow.is_some() {
+                    "console viewer closed; stream keeps running (c stops it)".to_string()
+                } else {
+                    "console viewer closed".to_string()
+                };
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.viewer_follow = false;
+                self.viewer_scroll = self.viewer_scroll.saturating_add(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.viewer_scroll = self.viewer_scroll.saturating_sub(1);
+                if self.viewer_scroll == 0 {
+                    self.viewer_follow = true;
+                }
+            }
+            KeyCode::PageUp => {
+                self.viewer_follow = false;
+                self.viewer_scroll = self.viewer_scroll.saturating_add(10);
+            }
+            KeyCode::PageDown => {
+                self.viewer_scroll = self.viewer_scroll.saturating_sub(10);
+                if self.viewer_scroll == 0 {
+                    self.viewer_follow = true;
+                }
+            }
+            KeyCode::Home | KeyCode::Char('g') => {
+                self.viewer_follow = false;
+                self.viewer_scroll = self.console.len();
+            }
+            KeyCode::End | KeyCode::Char('G') => {
+                self.viewer_follow = true;
+                self.viewer_scroll = 0;
+            }
+            KeyCode::Char('f') => {
+                self.viewer_follow = !self.viewer_follow;
+                if self.viewer_follow {
+                    self.viewer_scroll = 0;
+                }
+                self.status = format!(
+                    "console follow {}",
+                    if self.viewer_follow { "on" } else { "off" }
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn request_quit(&mut self) {
+        if self.operation_plan.is_some() || self.console_follow.is_some() {
+            self.overlay = Overlay::ConfirmQuit;
+            self.status = "quit? console streams or plans are active: y quits, any other key stays"
+                .to_string();
+            return;
+        }
+        self.should_quit = true;
+    }
+
+    fn handle_confirm_quit_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Enter => {
+                self.should_quit = true;
+            }
+            _ => {
+                self.overlay = Overlay::None;
+                self.status = "quit cancelled".to_string();
+            }
+        }
+    }
+
+    fn active_work_summary(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some((job, build)) = &self.console_follow {
+            parts.push(format!("console stream {job} #{build}"));
+        }
+        if let Some(plan) = &self.operation_plan {
+            parts.push(format!(
+                "{} plan on {}",
+                plan.kind.label(),
+                plan.target_label
+            ));
+        }
+        if parts.is_empty() {
+            "no active streams or plans".to_string()
+        } else {
+            parts.join(", ")
         }
     }
 
     fn move_selection(&mut self, delta: isize) {
         let len = self.filtered_items().len();
         if len == 0 {
-            self.selected = 0;
+            self.set_selected(0);
             return;
         }
         let last = len as isize - 1;
-        self.selected = (self.selected as isize + delta).clamp(0, last) as usize;
+        let next = (self.selected() as isize + delta).clamp(0, last) as usize;
+        self.set_selected(next);
     }
 
     fn next_view(&mut self) {
@@ -1045,7 +1291,6 @@ impl JenkinsTuiApp {
             ViewKind::Builds => ViewKind::Activity,
             ViewKind::Activity => ViewKind::Jobs,
         };
-        self.selected = 0;
         self.status = format!("view: {}", self.active.label());
     }
 
@@ -1055,12 +1300,13 @@ impl JenkinsTuiApp {
             ViewKind::Builds => ViewKind::Jobs,
             ViewKind::Activity => ViewKind::Builds,
         };
-        self.selected = 0;
         self.status = format!("view: {}", self.active.label());
     }
 
     fn refresh(&mut self) {
         if let Some(service) = &self.service {
+            self.pending[ViewKind::Jobs.index()] = true;
+            self.pending[ViewKind::Activity.index()] = true;
             service.send(JenkinsCommand::ListJobs {
                 folder: String::new(),
             });
@@ -1079,13 +1325,14 @@ impl JenkinsTuiApp {
                     return;
                 }
                 if let Some(service) = &self.service {
+                    self.pending[ViewKind::Builds.index()] = true;
                     service.send(JenkinsCommand::GetJobDetail {
                         job_full_name: job.full_name.clone(),
                     });
                     self.status = format!("loading builds for {}", job.full_name);
                 } else {
-                    self.active = ViewKind::Builds;
-                    self.selected = 0;
+                    self.set_active_kind(ViewKind::Builds);
+                    self.set_selected(0);
                     self.status = format!("fixture builds for {}", job.full_name);
                 }
             }
@@ -1119,11 +1366,13 @@ impl JenkinsTuiApp {
             self.status = "console follow requires job and build number".to_string();
             return;
         }
-        self.console.clear();
         self.console_offset = 0;
         self.console_has_more = true;
         self.console_follow = Some((job_full_name.clone(), build_number));
         if let Some(service) = &self.service {
+            // Live streams start from a clean buffer; the retained fixture
+            // console stays visible when no service is attached.
+            self.console.clear();
             service.send(JenkinsCommand::FetchConsole {
                 job_full_name: job_full_name.clone(),
                 build_number,
@@ -1133,6 +1382,13 @@ impl JenkinsTuiApp {
         } else {
             self.status = format!("fixture console for {job_full_name} #{build_number}");
         }
+        self.open_console_viewer();
+    }
+
+    fn open_console_viewer(&mut self) {
+        self.overlay = Overlay::ConsoleViewer;
+        self.viewer_follow = true;
+        self.viewer_scroll = 0;
     }
 
     fn cancel_console(&mut self) {
@@ -1657,15 +1913,12 @@ impl JenkinsTuiApp {
     }
 
     fn show_help(&mut self) {
-        self.return_mode = self.mode;
-        self.mode = Mode::Help;
-        self.status = "help open".to_string();
+        self.overlay = Overlay::Help;
+        self.status = "help open; any key closes".to_string();
     }
 
     fn trim_selection(&mut self) {
-        self.selected = self
-            .selected
-            .min(self.filtered_items().len().saturating_sub(1));
+        self.set_selected(self.selected());
     }
 
     fn filtered_items(&self) -> Vec<BrowserItem> {
@@ -1696,7 +1949,7 @@ impl JenkinsTuiApp {
     }
 
     fn selected_item(&self) -> Option<BrowserItem> {
-        self.filtered_items().get(self.selected).cloned()
+        self.filtered_items().get(self.selected()).cloned()
     }
 
     fn filter_label(&self) -> String {
@@ -1810,10 +2063,12 @@ impl JenkinsTuiApp {
         let vertical = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),
+                // Header and status each carry two content rows (title+tabs,
+                // status+hints) on top of their borders.
+                Constraint::Length(4),
                 Constraint::Min(12),
                 Constraint::Length(8),
-                Constraint::Length(3),
+                Constraint::Length(4),
             ])
             .split(area);
 
@@ -1827,10 +2082,15 @@ impl JenkinsTuiApp {
         frame.render_widget(self.console_panel(), vertical[2]);
         frame.render_widget(self.status_panel(), vertical[3]);
 
-        match self.mode {
-            Mode::Help => self.draw_help(frame, area),
-            Mode::Error => self.draw_error(frame, area),
-            Mode::Browser | Mode::Filter => {}
+        match self.overlay {
+            Overlay::None => {}
+            Overlay::Help => self.draw_help(frame, area),
+            Overlay::JobPicker => self.draw_job_picker(frame, area),
+            Overlay::ConsoleViewer => self.draw_console_viewer(frame, area),
+            Overlay::ConfirmQuit => self.draw_confirm_quit(frame, area),
+        }
+        if let Some(error) = &self.error_banner {
+            self.draw_error_banner(frame, area, error);
         }
     }
 
@@ -1839,14 +2099,25 @@ impl JenkinsTuiApp {
         let tabs = ViewKind::ALL
             .iter()
             .map(|kind| {
-                if *kind == self.active {
-                    format!("[{}]", kind.label())
+                let pending_mark = if self.pending[kind.index()] {
+                    "\u{27f3}"
                 } else {
-                    kind.label().to_string()
+                    ""
+                };
+                let label = format!("{}:{}{}", kind.hotkey(), kind.label(), pending_mark);
+                if *kind == self.active {
+                    format!("[{label}]")
+                } else {
+                    label
                 }
             })
             .collect::<Vec<_>>()
             .join(" ");
+        let console = self
+            .console_follow
+            .as_ref()
+            .map(|(job, build)| format!("{job} #{build}"))
+            .unwrap_or_else(|| "idle".to_string());
         Paragraph::new(vec![
             Line::from(vec![
                 Span::styled(
@@ -1859,14 +2130,14 @@ impl JenkinsTuiApp {
                 )),
             ]),
             Line::from(format!(
-                "{}  source={} purpose={} readonly={} restore={} search={} console_follow={}",
+                "{}  source={} purpose={} readonly={} restore={} filter={} console={}",
                 tabs,
                 source,
                 self.purpose,
                 self.readonly,
                 self.restore,
                 self.filter_label(),
-                self.console_follow.is_some()
+                console
             )),
         ])
         .block(Block::default().borders(Borders::ALL))
@@ -1875,15 +2146,15 @@ impl JenkinsTuiApp {
     fn browser_list(&self, area: Rect) -> Paragraph<'_> {
         let items = self.filtered_items();
         let visible = area.height.saturating_sub(2).max(1) as usize;
-        let start = window_start(self.selected, visible, items.len());
+        let start = window_start(self.selected(), visible, items.len());
         let lines = items
             .iter()
             .enumerate()
             .skip(start)
             .take(visible)
             .map(|(idx, item)| {
-                let marker = if idx == self.selected { ">" } else { " " };
-                let style = if idx == self.selected {
+                let marker = if idx == self.selected() { ">" } else { " " };
+                let style = if idx == self.selected() {
                     Style::default()
                         .fg(Color::Black)
                         .bg(Color::Yellow)
@@ -1897,17 +2168,21 @@ impl JenkinsTuiApp {
                 ))
             })
             .collect::<Vec<_>>();
-        Paragraph::new(if lines.is_empty() {
-            vec![Line::from("No items loaded. Press r to refresh.")]
-        } else {
+        Paragraph::new(if !lines.is_empty() {
             lines
+        } else if self.pending[self.active.index()] {
+            vec![Line::from("loading\u{2026}")]
+        } else {
+            vec![Line::from(
+                "No items loaded. Press r to refresh, N to pick a job, / to filter.",
+            )]
         })
         .block(
             Block::default()
                 .title(format!(
                     " {} ({}/{}) ",
                     self.active.label(),
-                    self.selected.saturating_add(1).min(items.len()),
+                    self.selected().saturating_add(1).min(items.len()),
                     items.len()
                 ))
                 .borders(Borders::ALL),
@@ -1983,6 +2258,11 @@ impl JenkinsTuiApp {
     }
 
     fn console_panel(&self) -> Paragraph<'_> {
+        let target = self
+            .console_follow
+            .as_ref()
+            .map(|(job, build)| format!("{job} #{build}"))
+            .unwrap_or_else(|| "inactive".to_string());
         let mut lines = self
             .console
             .tail(6)
@@ -2002,22 +2282,38 @@ impl JenkinsTuiApp {
             )));
         }
         Paragraph::new(lines)
-            .block(Block::default().title(" Console ").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title(format!(" Console {target} "))
+                    .borders(Borders::ALL),
+            )
             .wrap(Wrap { trim: false })
     }
 
     fn status_panel(&self) -> Paragraph<'_> {
-        Paragraph::new(vec![Line::from(format!(
-            "{} | mode={} | jobs={} builds={} running={} queue={} console {} lines/{} dropped",
-            self.primary_status(),
-            mode_label(self.mode),
-            self.jobs.len(),
-            self.builds.len(),
-            self.running.len(),
-            self.queue.len(),
-            self.console.len(),
-            self.console.dropped_lines
-        ))])
+        let hints = if self.mode == Mode::Filter {
+            format!(
+                "filter: {}\u{258f} Enter apply \u{b7} Esc clear \u{b7} {} match(es)",
+                self.filter,
+                self.filtered_items().len()
+            )
+        } else {
+            BROWSER_HINTS.to_string()
+        };
+        Paragraph::new(vec![
+            Line::from(format!(
+                "{} | mode={} | jobs={} builds={} running={} queue={} console {} lines/{} dropped",
+                self.primary_status(),
+                mode_label(self.mode),
+                self.jobs.len(),
+                self.builds.len(),
+                self.running.len(),
+                self.queue.len(),
+                self.console.len(),
+                self.console.dropped_lines
+            )),
+            Line::from(Span::styled(hints, Style::default().fg(Color::DarkGray))),
+        ])
         .block(Block::default().title(" Status ").borders(Borders::ALL))
     }
 
@@ -2034,17 +2330,48 @@ impl JenkinsTuiApp {
     }
 
     fn draw_help(&self, frame: &mut Frame, area: Rect) {
-        let popup = centered_rect(72, 56, area);
+        let popup = centered_rect(78, 84, area);
         frame.render_widget(Clear, popup);
         let help = vec![
-            Line::from("Jenkins build and console TUI"),
-            Line::from("Tab / Shift+Tab: switch jobs, builds, activity"),
-            Line::from("j/k: move  /: search  r: refresh  Enter: detail/builds"),
-            Line::from("f: follow console  c: cancel console follow"),
-            Line::from("a: share bounded current-view context"),
-            Line::from("pending agent operation: y stage plan  n deny"),
-            Line::from("t: trigger job  R: retry build  x: abort build or cancel queue"),
-            Line::from("y: confirm plan  Esc: cancel plan  q: quit"),
+            Line::from(Span::styled(
+                "Navigation",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from("1-3 jump to jobs/builds/activity (Tab cycles)"),
+            Line::from(
+                "j/k or arrows move \u{b7} PgUp/PgDn page \u{b7} g/G home/end \u{b7} selection is kept per kind",
+            ),
+            Line::from("N job picker (type to narrow, Enter selects)"),
+            Line::from("/ filter (live, Enter applies, Esc clears) \u{b7} r refresh"),
+            Line::from(Span::styled(
+                "Inspect & console",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from("i/Enter: open builds for a job, console for a build"),
+            Line::from(
+                "f: console in a full-screen viewer (j/k PgUp/PgDn scroll, f follow, Esc closes; stream keeps running)",
+            ),
+            Line::from("c: stop console follow"),
+            Line::from(Span::styled(
+                "Operations (staged plans, y confirms)",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(
+                "t trigger job \u{b7} R retry build \u{b7} x abort build or cancel queue (y twice for destructive)",
+            ),
+            Line::from(
+                "y confirm staged plan \u{b7} Esc cancel plan \u{b7} readonly launches block at confirm",
+            ),
+            Line::from(
+                "pending agent operation: y stages it onto the existing plan flow, n denies",
+            ),
+            Line::from("a: share bounded current-view context with an external agent"),
+            Line::from(Span::styled(
+                "Sessions",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from("q: quit (asks for confirmation while console streams or plans are active)"),
+            Line::from("any key closes help"),
         ];
         frame.render_widget(
             Paragraph::new(help)
@@ -2055,21 +2382,157 @@ impl JenkinsTuiApp {
         );
     }
 
-    fn draw_error(&self, frame: &mut Frame, area: Rect) {
-        let popup = centered_rect(72, 40, area);
+    fn draw_job_picker(&self, frame: &mut Frame, area: Rect) {
+        let popup = centered_rect(60, 60, area);
+        frame.render_widget(Clear, popup);
+        let matches = self.filtered_jobs();
+        let visible = popup.height.saturating_sub(5).max(1) as usize;
+        let start = window_start(self.job_selected, visible, matches.len());
+        let mut lines = vec![
+            Line::from(Span::styled(
+                format!("filter: {}\u{258f}", self.job_filter),
+                Style::default().fg(Color::Cyan),
+            )),
+            Line::from(""),
+        ];
+        if matches.is_empty() {
+            lines.push(Line::from("no job matches the filter"));
+        } else {
+            lines.extend(
+                matches
+                    .iter()
+                    .enumerate()
+                    .skip(start)
+                    .take(visible)
+                    .map(|(idx, job)| {
+                        let marker = if idx == self.job_selected { ">" } else { " " };
+                        let style = if idx == self.job_selected {
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default()
+                        };
+                        Line::from(Span::styled(
+                            format!("{marker} {:<10} {}", job.status, job.full_name),
+                            style,
+                        ))
+                    }),
+            );
+        }
+        frame.render_widget(
+            Paragraph::new(lines)
+                .block(
+                    Block::default()
+                        .title(format!(
+                            " Jobs {}/{} \u{b7} type to narrow \u{b7} Enter select \u{b7} Esc close ",
+                            self.job_selected
+                                .saturating_add(1)
+                                .min(matches.len().max(1)),
+                            matches.len()
+                        ))
+                        .borders(Borders::ALL),
+                )
+                .wrap(Wrap { trim: false }),
+            popup,
+        );
+    }
+
+    fn draw_console_viewer(&self, frame: &mut Frame, area: Rect) {
+        let popup = centered_rect(88, 82, area);
+        frame.render_widget(Clear, popup);
+        let visible = popup.height.saturating_sub(2).max(1) as usize;
+        let total = self.console.len();
+        let body: Vec<Line> = if total == 0 {
+            vec![Line::from(
+                "no console lines retained; select a build and press f",
+            )]
+        } else if self.viewer_follow {
+            self.console
+                .tail(visible)
+                .into_iter()
+                .map(Line::from)
+                .collect()
+        } else {
+            let end = total.saturating_sub(self.viewer_scroll);
+            let start = end.saturating_sub(visible);
+            self.console
+                .range(start, end)
+                .into_iter()
+                .map(Line::from)
+                .collect()
+        };
+        let follow_label = if self.viewer_follow {
+            "follow=f on"
+        } else {
+            "follow=f off"
+        };
+        let target = self
+            .console_follow
+            .as_ref()
+            .map(|(job, build)| format!("{job} #{build}"))
+            .unwrap_or_else(|| "no active stream".to_string());
+        frame.render_widget(
+            Paragraph::new(body)
+                .block(
+                    Block::default()
+                        .title(format!(
+                            " Console \u{b7} {} \u{b7} {} lines retained \u{b7} j/k PgUp/PgDn scroll \u{b7} {} \u{b7} Esc close ",
+                            target, total, follow_label
+                        ))
+                        .borders(Borders::ALL),
+                )
+                .wrap(Wrap { trim: false }),
+            popup,
+        );
+    }
+
+    fn draw_confirm_quit(&self, frame: &mut Frame, area: Rect) {
+        let popup = centered_rect(56, 22, area);
         frame.render_widget(Clear, popup);
         frame.render_widget(
             Paragraph::new(vec![
                 Line::from(Span::styled(
-                    "Jenkins server error",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    "Quit with active work?",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 )),
-                Line::from(self.status.clone()),
-                Line::from("Press any key to return to the browser."),
+                Line::from(self.active_work_summary()),
+                Line::from("y/Enter: quit \u{b7} any other key: stay"),
             ])
-            .block(Block::default().title(" Error ").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title(" Confirm Quit ")
+                    .borders(Borders::ALL),
+            )
             .wrap(Wrap { trim: false }),
             popup,
+        );
+    }
+
+    fn draw_error_banner(&self, frame: &mut Frame, area: Rect, error: &str) {
+        let banner = Rect {
+            x: area.x + 1,
+            y: area.height.saturating_sub(6),
+            width: area.width.saturating_sub(2),
+            height: 3,
+        };
+        frame.render_widget(Clear, banner);
+        frame.render_widget(
+            Paragraph::new(vec![Line::from(Span::styled(
+                safe_error_summary(error),
+                Style::default().fg(Color::Red),
+            ))])
+            .block(
+                Block::default()
+                    .title(" Error (any key acknowledges) ")
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(Color::Red)),
+            )
+            .wrap(Wrap { trim: false }),
+            banner,
         );
     }
 }
@@ -2128,10 +2591,33 @@ impl BoundedLines {
             .rev()
             .collect()
     }
+
+    fn range(&self, start: usize, end: usize) -> Vec<String> {
+        self.lines
+            .iter()
+            .skip(start)
+            .take(end.saturating_sub(start))
+            .cloned()
+            .collect()
+    }
 }
 
 impl ViewKind {
+    const COUNT: usize = 3;
+
     const ALL: [ViewKind; 3] = [ViewKind::Jobs, ViewKind::Builds, ViewKind::Activity];
+
+    fn index(self) -> usize {
+        Self::ALL.iter().position(|kind| *kind == self).unwrap_or(0)
+    }
+
+    fn hotkey(self) -> &'static str {
+        match self {
+            ViewKind::Jobs => "1",
+            ViewKind::Builds => "2",
+            ViewKind::Activity => "3",
+        }
+    }
 
     fn label(self) -> &'static str {
         match self {
@@ -2391,8 +2877,6 @@ fn mode_label(mode: Mode) -> &'static str {
     match mode {
         Mode::Browser => "browser",
         Mode::Filter => "filter",
-        Mode::Help => "help",
-        Mode::Error => "error",
     }
 }
 
@@ -2708,9 +3192,175 @@ mod tests {
     fn uppercase_a_is_not_an_operation_shortcut() {
         let mut app = JenkinsTuiApp::new(fixture_launch(false)).unwrap();
         app.handle_key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE));
-        assert!(app.status.contains("a share context"));
+        assert!(app.status.contains("a share"));
         assert!(!app.status.contains("assist"));
         assert!(!app.status.contains("poll"));
+    }
+
+    fn press(app: &mut JenkinsTuiApp, code: KeyCode) {
+        app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+    }
+
+    fn type_text(app: &mut JenkinsTuiApp, text: &str) {
+        for ch in text.chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+    }
+
+    #[test]
+    fn kind_hotkeys_and_tab_keep_selection_per_kind() {
+        let mut app = JenkinsTuiApp::new(fixture_launch(false)).unwrap();
+        assert_eq!(app.active, ViewKind::Jobs);
+        press(&mut app, KeyCode::Char('j'));
+        let job_selection = app.selected();
+        assert_eq!(job_selection, 1);
+        press(&mut app, KeyCode::Char('2'));
+        assert_eq!(app.active, ViewKind::Builds);
+        press(&mut app, KeyCode::Char('j'));
+        let build_selection = app.selected();
+        assert_eq!(build_selection, 1);
+        // Per-kind selection memory: returning to jobs keeps the row.
+        press(&mut app, KeyCode::Char('1'));
+        assert_eq!(app.selected(), job_selection);
+        press(&mut app, KeyCode::Char('2'));
+        assert_eq!(app.selected(), build_selection);
+        // Tab cycling preserves it too.
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(app.active, ViewKind::Activity);
+        assert_eq!(app.selected(), 0);
+    }
+
+    #[test]
+    fn job_picker_filters_and_selects() {
+        let mut app = JenkinsTuiApp::new(fixture_launch(false)).unwrap();
+        press(&mut app, KeyCode::Char('N'));
+        assert_eq!(app.overlay, Overlay::JobPicker);
+        type_text(&mut app, "wor");
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.overlay, Overlay::None);
+        assert_eq!(app.active, ViewKind::Jobs);
+        let picked = app.selected_item().expect("picker selects a job");
+        assert!(picked.safe_label().contains("worker"));
+        assert!(app.status.contains("picked job worker"));
+    }
+
+    #[test]
+    fn filter_enter_applies_with_match_count() {
+        let mut app = JenkinsTuiApp::new(fixture_launch(false)).unwrap();
+        press(&mut app, KeyCode::Char('/'));
+        assert_eq!(app.mode, Mode::Filter);
+        type_text(&mut app, "failed");
+        assert_eq!(app.filtered_items().len(), 1, "filter narrows live");
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.mode, Mode::Browser);
+        assert!(app.status.contains("filter applied: failed"));
+        assert!(app.status.contains("(1 matches)"));
+        assert!(
+            app.selected_item()
+                .is_some_and(|item| item.safe_label().contains("worker"))
+        );
+        press(&mut app, KeyCode::Char('/'));
+        press(&mut app, KeyCode::Esc);
+        assert!(app.filter.is_empty());
+        assert!(app.status.contains("filter cleared"));
+    }
+
+    #[test]
+    fn console_viewer_scrolls_pauses_and_closes() {
+        let mut app = JenkinsTuiApp::new(fixture_launch(false)).unwrap();
+        let retained = app.console.len();
+        assert!(retained > 0, "fixture console is preloaded");
+        press(&mut app, KeyCode::Char('2'));
+        press(&mut app, KeyCode::Char('f'));
+        assert_eq!(app.overlay, Overlay::ConsoleViewer);
+        assert!(app.viewer_follow);
+        // Fixture console lines are retained when no service is attached.
+        assert_eq!(app.console.len(), retained);
+        press(&mut app, KeyCode::Up);
+        assert!(!app.viewer_follow);
+        assert_eq!(app.viewer_scroll, 1);
+        press(&mut app, KeyCode::End);
+        assert!(app.viewer_follow);
+        assert_eq!(app.viewer_scroll, 0);
+        press(&mut app, KeyCode::Char('f'));
+        assert!(!app.viewer_follow);
+        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        assert!(app.viewer_follow);
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.overlay, Overlay::None);
+        assert!(
+            app.console_follow.is_some(),
+            "closing the viewer keeps the stream"
+        );
+        assert_eq!(app.console.len(), retained);
+    }
+
+    #[test]
+    fn quit_with_active_stream_requires_confirmation() {
+        let mut app = JenkinsTuiApp::new(fixture_launch(false)).unwrap();
+        press(&mut app, KeyCode::Char('2'));
+        press(&mut app, KeyCode::Char('f'));
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Char('q'));
+        assert_eq!(app.overlay, Overlay::ConfirmQuit);
+        assert!(!app.should_quit);
+        assert!(app.active_work_summary().contains("console stream"));
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.overlay, Overlay::None);
+        assert!(!app.should_quit);
+        press(&mut app, KeyCode::Char('q'));
+        press(&mut app, KeyCode::Char('y'));
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn quit_with_staged_plan_requires_confirmation() {
+        let mut app = JenkinsTuiApp::new(fixture_launch(false)).unwrap();
+        app.active = ViewKind::Activity;
+        app.plan_stop_or_cancel();
+        assert!(app.operation_plan.is_some());
+        press(&mut app, KeyCode::Char('q'));
+        assert_eq!(app.overlay, Overlay::ConfirmQuit);
+        assert!(app.active_work_summary().contains("abort build"));
+        press(&mut app, KeyCode::Char('n'));
+        assert_eq!(app.overlay, Overlay::None);
+        assert!(!app.should_quit);
+        assert!(app.operation_plan.is_some(), "staying keeps the plan");
+    }
+
+    #[test]
+    fn background_error_becomes_banner_not_modal() {
+        let mut app = JenkinsTuiApp::new(fixture_launch(false)).unwrap();
+        app.handle_service_event(JenkinsEvent::Error(
+            "console poll failed: connection refused".to_string(),
+        ));
+        assert_eq!(app.mode, Mode::Browser, "errors must not hijack the mode");
+        assert!(app.error_banner.is_some());
+        // Any key acknowledges the banner while keeping its normal meaning.
+        press(&mut app, KeyCode::Char('j'));
+        assert!(app.error_banner.is_none());
+        assert_eq!(app.mode, Mode::Browser);
+        assert_eq!(app.selected(), 1, "the acknowledging key still navigates");
+    }
+
+    #[test]
+    fn page_keys_move_selection() {
+        let mut app = JenkinsTuiApp::new(fixture_launch(false)).unwrap();
+        press(&mut app, KeyCode::PageDown);
+        let len = app.filtered_items().len();
+        assert_eq!(app.selected(), len.saturating_sub(1));
+        press(&mut app, KeyCode::PageUp);
+        assert_eq!(app.selected(), 0);
+    }
+
+    #[test]
+    fn help_overlay_opens_and_any_key_closes() {
+        let mut app = JenkinsTuiApp::new(fixture_launch(false)).unwrap();
+        press(&mut app, KeyCode::Char('?'));
+        assert_eq!(app.overlay, Overlay::Help);
+        press(&mut app, KeyCode::Char('j'));
+        assert_eq!(app.overlay, Overlay::None);
+        assert!(app.status.contains("help closed"));
     }
 
     fn temp_context_share_store() -> AgentContextShareStore {
