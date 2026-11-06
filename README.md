@@ -25,27 +25,27 @@ Independent process plugin for [VoidB](https://github.com/limmytian/voidb) to co
 
 ## Usage & Operational Modes
 
-When installed, `voidb-cli` automatically discovers this plugin and provides seamless transparent dispatch:
+When installed, `vb` automatically discovers this plugin and provides seamless transparent dispatch:
 
 ### 1. Human Operations (CLI & TUI)
 
 ```bash
 # Connectivity test
-voidb-cli jenkins test --profile my-jenkins
+vb jenkins test --profile my-jenkins
 
 # Launch standalone interactive fullscreen TUI
-voidb-cli jenkins tui --profile my-jenkins
+vb jenkins tui --profile my-jenkins
 
 # Inspect jobs and view build console logs
-voidb-cli jenkins jobs --profile my-jenkins
-voidb-cli jenkins console "build-job" 42 --profile my-jenkins
+vb jenkins jobs --profile my-jenkins
+vb jenkins console "build-job" 42 --profile my-jenkins
 ```
 
 ### 2. Machine Communication (AI Agents & JSON-RPC)
 
 ```bash
-# Run the stdio-jsonrpc server directly or via voidb-cli
-voidb-cli jenkins serve
+# Run the stdio-jsonrpc server directly or via vb
+vb jenkins serve
 # Or directly run the binary:
 ./bin/voidb-plugin-jenkins serve
 ```
@@ -64,8 +64,8 @@ cp -r plugin.toml bin schemas "$HOME/Library/Application Support/voidb/plugins/j
 Verify discovery via `voidb`:
 
 ```bash
-voidb-cli plugin list
-voidb-cli jenkins --help
+vb plugin list
+vb jenkins --help
 ```
 
 ### Development & Build

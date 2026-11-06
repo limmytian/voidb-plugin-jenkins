@@ -423,7 +423,7 @@ fn jenkins_authorization_metadata(id: &str) -> voidb_core::CapabilityAuthorizati
     } else {
         metadata
             .with_note(if id == "console" {
-                "Job and build are revalidated; progressive console sessions remain deferred."
+                "Job and build are revalidated; progressive console streams run as bounded live sessions."
             } else {
                 "Job, build, or queue identity is revalidated before execution."
             })

@@ -162,7 +162,7 @@ default_timeout_ms = 30000
 declared = true
 interactive_execute = false
 session_purposes = []
-note = "Job and build are revalidated; progressive console sessions remain deferred."
+note = "Job and build are revalidated; progressive console streams run as bounded live sessions."
 capability_wide_allowed = true
 
 [capabilities.authorization.approval_schema]
