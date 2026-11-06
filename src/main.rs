@@ -13,9 +13,10 @@ use voidb_core::{
     CapabilityError, CapabilityErrorCategory, RedactionStatus, VOIDB_MASTER_PASSWORD_ENV,
 };
 use voidb_plugin_jenkins::{
-    JenkinsConfig, create_jenkins_cli_plugin, invoke_jenkins_capability, jenkins_capabilities,
-};
-use voidb_process_plugin_sdk::{CapabilityRouter, serve_stdio};
+    JenkinsConfig, create_jenkins_cli_plugin, invoke_jenkins_capability, jenkins_capabilities, JenkinsAgentSessionFactory};
+use std::sync::Arc;
+
+use voidb_process_plugin_sdk::{CapabilityRouter, CoreSessionAdapter, serve_stdio};
 
 fn main() -> Result<()> {
     let cli_plugin = create_jenkins_cli_plugin();
@@ -141,6 +142,25 @@ fn run_server() -> Result<()> {
         .build()?;
 
     let mut router = CapabilityRouter::new("jenkins");
+
+    // Persistent-session bridge: the factory constructor rebuilds the
+    // plugin config from the scoped open request (see the secret-brokering
+    // policy's per-session disclosure rule).
+    router = router.session_bridge(Arc::new(
+        CoreSessionAdapter::new(runtime.handle().clone(), |params| {
+            let config: JenkinsConfig = serde_json::from_value(params.options.clone())
+                .map_err(|error| CapabilityError {
+                    category: CapabilityErrorCategory::Validation,
+                    code: "validation.session_config_invalid".into(),
+                    message: format!("Session profile configuration is invalid: {error}"),
+                    details: serde_json::json!({}),
+                    target: None,
+                    retryable: false,
+                    redaction: RedactionStatus::NotRequired,
+                })?;
+            Ok(Arc::new(JenkinsAgentSessionFactory::new(config)))
+        }),
+    ));
 
     for cap in jenkins_capabilities() {
         let rt = runtime.handle().clone();
