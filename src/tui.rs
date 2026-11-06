@@ -604,6 +604,11 @@ fn preflight_value(launch: &JenkinsTuiLaunch) -> Value {
 }
 
 fn run_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut JenkinsTuiApp) -> Result<()> {
+    // Startup auto-load (standalone TUI acceptance): the primary view must
+    // show live data without requiring a manual refresh key.
+    if app.service.is_some() {
+        app.refresh();
+    }
     terminal.draw(|frame| app.draw(frame))?;
     loop {
         let mut dirty = app.drain_service();
