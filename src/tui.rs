@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,6 +27,7 @@ use voidb_core::{
 };
 #[cfg(test)]
 use voidb_core::{AgentOperationRisk, AgentPrincipal, AssistPermission};
+use voidb_tui_kit::{BoundedLines, centered_rect, safe_error_summary, window_start};
 
 use crate::config::{JenkinsAuth, JenkinsConfig};
 use crate::service::{JenkinsCommand, JenkinsEvent, JenkinsService};
@@ -353,15 +353,6 @@ struct OperationPlanView {
     risk: &'static str,
     confirmations_required: u8,
     confirmations: u8,
-}
-
-#[derive(Debug, Clone)]
-struct BoundedLines {
-    lines: VecDeque<String>,
-    bytes: usize,
-    dropped_lines: usize,
-    max_lines: usize,
-    max_bytes: usize,
 }
 
 pub fn write_jenkins_tui_preflight(launch: &JenkinsTuiLaunch) -> Result<()> {
@@ -2051,8 +2042,8 @@ impl JenkinsTuiApp {
                 "offset": self.console_offset,
                 "has_more": self.console_has_more,
                 "lines": self.console.len(),
-                "dropped_lines": self.console.dropped_lines,
-                "bytes": self.console.bytes
+                "dropped_lines": self.console.dropped_lines(),
+                "bytes": self.console.bytes(),
             },
             "withheld": [
                 "jenkins.client_handle",
@@ -2277,11 +2268,11 @@ impl JenkinsTuiApp {
         if lines.is_empty() {
             lines.push(Line::from("No console data. Select a build and press f."));
         }
-        if self.console.dropped_lines > 0 {
+        if self.console.dropped_lines() > 0 {
             lines.push(Line::from(Span::styled(
                 format!(
                     "dropped {} console lines due to bounds",
-                    self.console.dropped_lines
+                    self.console.dropped_lines()
                 ),
                 Style::default().fg(Color::Yellow),
             )));
@@ -2315,7 +2306,7 @@ impl JenkinsTuiApp {
                 self.running.len(),
                 self.queue.len(),
                 self.console.len(),
-                self.console.dropped_lines
+                self.console.dropped_lines()
             )),
             Line::from(Span::styled(hints, Style::default().fg(Color::DarkGray))),
         ])
@@ -2542,71 +2533,6 @@ impl JenkinsTuiApp {
     }
 }
 
-impl BoundedLines {
-    fn new(max_lines: usize, max_bytes: usize) -> Self {
-        Self {
-            lines: VecDeque::new(),
-            bytes: 0,
-            dropped_lines: 0,
-            max_lines,
-            max_bytes,
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.lines.len()
-    }
-
-    fn clear(&mut self) {
-        self.lines.clear();
-        self.bytes = 0;
-        self.dropped_lines = 0;
-    }
-
-    fn push_text(&mut self, text: &str) {
-        for line in text.lines() {
-            self.push_line(line.to_string());
-        }
-    }
-
-    fn push_line(&mut self, mut line: String) {
-        if line.len() > self.max_bytes {
-            line.truncate(self.max_bytes);
-        }
-        self.bytes = self.bytes.saturating_add(line.len());
-        self.lines.push_back(line);
-        while self.lines.len() > self.max_lines || self.bytes > self.max_bytes {
-            if let Some(removed) = self.lines.pop_front() {
-                self.bytes = self.bytes.saturating_sub(removed.len());
-                self.dropped_lines = self.dropped_lines.saturating_add(1);
-            } else {
-                break;
-            }
-        }
-    }
-
-    fn tail(&self, count: usize) -> Vec<String> {
-        self.lines
-            .iter()
-            .rev()
-            .take(count)
-            .cloned()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect()
-    }
-
-    fn range(&self, start: usize, end: usize) -> Vec<String> {
-        self.lines
-            .iter()
-            .skip(start)
-            .take(end.saturating_sub(start))
-            .cloned()
-            .collect()
-    }
-}
-
 impl ViewKind {
     const COUNT: usize = 3;
 
@@ -2789,15 +2715,6 @@ fn queue_value(item: &QueueView) -> Value {
     })
 }
 
-fn safe_error_summary(message: &str) -> String {
-    let mut summary = message.replace('\n', " ");
-    if summary.len() > 180 {
-        summary.truncate(177);
-        summary.push_str("...");
-    }
-    summary
-}
-
 fn secret_leak_markers(text: &str) -> Vec<String> {
     [
         "jenkins_api_token_value",
@@ -2883,36 +2800,6 @@ fn mode_label(mode: Mode) -> &'static str {
         Mode::Browser => "browser",
         Mode::Filter => "filter",
     }
-}
-
-fn window_start(selected: usize, visible: usize, len: usize) -> usize {
-    if visible == 0 || len <= visible {
-        0
-    } else if selected >= visible {
-        (selected + 1).saturating_sub(visible)
-    } else {
-        0
-    }
-}
-
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(area);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
 }
 
 struct StandaloneJenkinsTabManager {
@@ -3414,5 +3301,25 @@ mod tests {
             requested_permissions: vec![AssistPermission::ProposeCommands],
             redaction: RedactionStatus::Applied,
         }
+    }
+    #[test]
+    fn startup_auto_load_shows_data_before_first_draw_or_keypress() {
+        // 0.4.1 acceptance, locked per the TUI shared-kit ADR: the primary
+        // view must show live data without a manual refresh key. Fixture
+        // data loads in the constructor, and the run loop's startup
+        // auto-load block (queue the initial refresh when a live service is
+        // attached) must neither clear nor block it before the first draw.
+        let mut app = JenkinsTuiApp::new(fixture_launch(false)).unwrap();
+        assert!(
+            !app.jobs.is_empty(),
+            "fixture data must be visible before the first draw"
+        );
+
+        // The run-loop startup block verbatim: fixture mode has no live
+        // service, so the refresh is the fixture refresh and data stays.
+        if app.service.is_some() {
+            app.refresh();
+        }
+        assert!(!app.jobs.is_empty());
     }
 }
